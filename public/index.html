@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="A local proof of concept: two daily games, streamed into one place, with automatic result capture.">
+  <title>dailypipeline67 — Your daily run</title>
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <header class="header">
+    <a href="/" class="wordmark" aria-label="dailypipeline67 home">daily<span>pipeline</span><b>67</b></a>
+    <span class="tag">LOCAL PROOF OF CONCEPT</span>
+  </header>
+  <main>
+    <div class="intro"><div><p class="eyebrow">A LITTLE DAILY COMPETITION</p><h1>Your daily run.</h1><p>Two games. One place. Scores saved as you finish.</p></div><div class="progress"><strong id="completed">0 / 2</strong><span>games completed</span></div></div>
+    <div class="workspace">
+      <aside class="sidebar">
+        <h2>Today's pipeline</h2>
+        <nav aria-label="Games in your pipeline" class="games">
+          <button class="game" data-game="krillion" disabled><span class="step">01</span><span><strong>Krillion</strong><small>Seven questions. Go deeper.</small><span class="game-status" id="krillion-status">Ready to play</span></span><span class="arrow" aria-hidden="true">↗</span></button>
+          <button class="game" data-game="maptap" disabled><span class="step">02</span><span><strong>Maptap</strong><small>Five places. Find your bearings.</small><span class="game-status" id="maptap-status">Ready to play</span></span><span class="arrow" aria-hidden="true">↗</span></button>
+        </nav>
+        <section class="scoreboard" aria-labelledby="scores-heading">
+          <div class="section-label"><h2 id="scores-heading">Your scores</h2><span class="auto">AUTO-SAVE</span></div>
+          <div class="score-row"><span>Krillion</span><strong id="krillion-score">—</strong></div>
+          <div class="score-row"><span>Maptap</span><strong id="maptap-score">—</strong></div>
+          <p id="score-note">Finish a game and your result appears here.</p>
+          <button id="next" class="primary" hidden>Next game →</button>
+        </section>
+        <p class="poc-note">Guest games only for this test. Each browser gets its own game session. Group leaderboards come later.</p>
+      </aside>
+      <section class="player" aria-label="Live game player">
+        <div class="player-bar"><div class="connection"><span id="connection-dot" class="dot"></span><span id="status" role="status" aria-live="polite">Connecting…</span></div><button id="reload" class="text-button" disabled>Reload game</button></div>
+        <div id="notice" role="alert" hidden></div>
+        <div class="stage">
+          <div id="empty"><span class="empty-symbol" aria-hidden="true">↳</span><h2>First stop: Krillion.</h2><p>Play the original games right here.<br>We'll keep track of the finish line.</p><button id="start" class="primary" disabled>Start your pipeline →</button></div>
+          <canvas id="screen" width="1100" height="760" tabindex="0" aria-label="Interactive streamed game. Click to focus, then use your keyboard. Escape returns to page controls." hidden></canvas>
+          <div id="loading" hidden><span>Opening your game…</span></div>
+        </div>
+        <div class="player-footer"><span id="source">Original games, live in your pipeline.</span><span id="metrics">Stream not started</span></div>
+        <div class="controls" id="controls" hidden>
+          <p>Click the game to focus. Drag to rotate, scroll to zoom. <kbd>Esc</kbd> returns to page controls.</p>
+          <form id="answer-form"><label for="answer">Touch keyboard</label><input id="answer" maxlength="200" placeholder="Tap the game's answer box first" autocomplete="off"><button type="submit" class="text-button">Send answer ↵</button></form>
+        </div>
+      </section>
+    </div>
+  </main>
+  <footer class="footer"><span>A small experiment in playing together.</span><span>Krillion & Maptap belong to their creators.</span></footer>
+</body>
+</html>
