@@ -44,8 +44,9 @@ async function capture(session) {
       const result = validateResult(raw, gameId);
       if (!result) continue;
       const key = `${gameId}:${result.puzzleId}:${result.puzzleDate}`;
-      if (saved[session.id]?.[key]) continue;
-      const entry = { ...result, capturedAt: new Date().toISOString(), source: 'live-game' };
+      const previous = saved[session.id]?.[key];
+      if (previous && (previous.shareText || !result.shareText || previous.score !== result.score)) continue;
+      const entry = { ...result, capturedAt: previous?.capturedAt || new Date().toISOString(), source: 'live-game' };
       // Serialize writes and replace atomically. Publish "saved" only after disk succeeds.
       writes = writes.catch(() => {}).then(async () => {
         const next = { ...saved, [session.id]: { ...saved[session.id], [key]: entry } };
@@ -109,13 +110,13 @@ async function openGame(session, gameId, reload = false, requestedViewport) {
   await cdp.send('Page.enable');
   cdp.on('Page.screencastFrame', event => {
     cdp.send('Page.screencastFrameAck', { sessionId: event.sessionId }).catch(() => {});
-    if (session.cdp !== cdp || session.socket?.readyState !== WebSocket.OPEN || session.socket.bufferedAmount > 1_000_000) return;
+    if (session.cdp !== cdp || session.socket?.readyState !== WebSocket.OPEN || session.socket.bufferedAmount > 128_000) return;
     const frame = Buffer.from(event.data, 'base64');
     session.frames += 1;
     session.bytes += frame.length;
     session.socket.send(frame, { binary: true });
   });
-  await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 65, maxWidth: session.viewport.width, maxHeight: session.viewport.height, everyNthFrame: 2 });
+  await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 45, maxWidth: session.viewport.width, maxHeight: session.viewport.height, everyNthFrame: 1 });
   if (reload) await page.goto(game.url, { waitUntil: 'domcontentloaded', timeout: 45000 });
   send(session, { type: 'status', state: 'live', gameId, message: `${game.name} is live`, viewport: session.viewport });
   await capture(session);
@@ -136,12 +137,17 @@ async function handleMessage(session, message) {
     const { x, y, action } = message;
     if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x > session.viewport.width || y > session.viewport.height) return;
     if (!['down', 'up', 'move'].includes(action)) return;
-    await page.mouse.move(x, y);
-    if (action === 'down') await page.mouse.down();
-    if (action === 'up') await page.mouse.up();
+    session.pointer = { x, y };
+    if (action !== 'move') session.pointerDown = action === 'down';
+    // One browser command per event; Playwright move + down/up adds avoidable frame waits.
+    await session.cdp.send('Input.dispatchMouseEvent', {
+      type: { down: 'mousePressed', up: 'mouseReleased', move: 'mouseMoved' }[action],
+      x, y, button: action === 'move' && !session.pointerDown ? 'none' : 'left',
+      buttons: session.pointerDown ? 1 : 0, clickCount: action === 'move' ? 0 : 1,
+    });
   } else if (message.type === 'wheel') {
     if (!Number.isFinite(message.deltaY)) return;
-    await page.mouse.wheel(0, Math.max(-500, Math.min(500, message.deltaY)));
+    await session.cdp.send('Input.dispatchMouseEvent', { type: 'mouseWheel', ...(session.pointer || { x: 0, y: 0 }), deltaX: 0, deltaY: Math.max(-500, Math.min(500, message.deltaY)) });
   } else if (message.type === 'key' && keyAllowed(message.key)) {
     if (message.action === 'down') await page.keyboard.down(message.key);
     if (message.action === 'up') await page.keyboard.up(message.key);
@@ -191,14 +197,21 @@ websocketServer.on('connection', (socket, req) => {
   session.socket = socket;
   session.lastSeen = Date.now();
   send(session, { type: 'hello', games, results: getResults(session.id), viewport, active: session.active });
-  let pending = 0;
+  let pending = 0, queuedMove = null;
   socket.on('message', data => {
     if (pending > 120 || session.socket !== socket) return;
     let message;
     try { message = JSON.parse(data.toString()); } catch { return; }
     if (!message || typeof message !== 'object') return;
+    if (message.type === 'pointer' && message.action === 'move') {
+      if (queuedMove) { Object.assign(queuedMove, message); return; }
+      queuedMove = message;
+    } else queuedMove = null; // Preserve ordering across clicks, releases and game switches.
     pending += 1;
-    session.chain = session.chain.then(() => handleMessage(session, message)).catch(error => {
+    session.chain = session.chain.then(() => {
+      if (queuedMove === message) queuedMove = null;
+      return handleMessage(session, message);
+    }).catch(error => {
       console.error(error.message);
       send(session, { type: 'error', message: `Game connection failed: ${error.message.slice(0, 180)}. Try reopening the game.` });
     }).finally(() => { pending -= 1; });

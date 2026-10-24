@@ -3,7 +3,7 @@ const screen = $('#screen');
 const paint = screen.getContext('2d');
 const gameButtons = [...document.querySelectorAll('[data-game]')];
 let socket, active = null, state = 'connecting', results = [], gameList = [], frames = 0, latency = null;
-let pressed = false, movePending = false, lastPointer, decoding = false;
+let pressed = false, movePending = false, lastPointer, decoding = false, latestFrame = null;
 const send = message => { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message)); };
 function notice(message) { $('#notice').textContent = message; $('#notice').hidden = !message; }
 function renderScores() {
@@ -15,13 +15,30 @@ function renderScores() {
     if (current) complete += 1;
     if (current && game.id === 'krillion') krillionComplete = true;
     $(`#${game.id}-score`).textContent = current ? `${current.score} / ${current.maxScore}` : '—';
+    $(`#${game.id}-share`).hidden = !current;
+    $(`#${game.id}-share-text`).value = current ? current.shareText || `${game.name} #${current.puzzleId}\n${current.score} / ${current.maxScore}` : '';
     $(`#${game.id}-status`).textContent = current ? `Saved · #${current.puzzleId}` : active === game.id ? 'In progress' : 'Ready to play';
     $(`[data-game="${game.id}"]`).classList.toggle('done', !!current);
   }
   $('#completed').textContent = `${complete} / 2`;
+  $('#copy-all').hidden = complete !== 2;
   $('#score-note').textContent = complete === 2 ? 'Run complete. Both results saved automatically.' : complete ? 'Result saved. Your next game is ready.' : 'Finish a game and your result appears here.';
   $('#next').hidden = !(active === 'krillion' && krillionComplete && complete < 2);
 }
+async function copyScore(text, field) {
+  try {
+    await navigator.clipboard.writeText(text);
+    $('#copy-status').textContent = 'Copied. Paste into your group chat.';
+  } catch {
+    if (field) { field.focus(); field.select(); }
+    $('#copy-status').textContent = field ? 'Copy blocked. Score selected — press Ctrl+C or hold to copy.' : 'Copy blocked. Select and copy each score above.';
+  }
+}
+for (const button of document.querySelectorAll('[data-copy]')) button.addEventListener('click', () => {
+  const field = document.getElementById(button.dataset.copy);
+  copyScore(field.value, field);
+});
+$('#copy-all').addEventListener('click', () => copyScore(gameList.map(game => $(`#${game.id}-share-text`).value).filter(Boolean).join('\n\n')));
 function setStatus(next, message) {
   state = next;
   $('#status').textContent = message;
@@ -58,13 +75,19 @@ function connect() {
   socket.binaryType = 'blob';
   socket.addEventListener('message', async event => {
     if (event.data instanceof Blob) {
+      latestFrame = event.data;
       if (decoding) return;
       decoding = true;
       try {
-        const image = await createImageBitmap(event.data);
-        paint.drawImage(image, 0, 0, screen.width, screen.height);
-        image.close(); frames += 1;
-      } finally { decoding = false; }
+        // Keep the newest pending frame when decoding falls behind.
+        while (latestFrame) {
+          const frame = latestFrame; latestFrame = null;
+          const image = await createImageBitmap(frame);
+          paint.drawImage(image, 0, 0, screen.width, screen.height);
+          image.close(); frames += 1;
+        }
+      } catch { /* A dropped frame must not interrupt the next one. */ }
+      finally { decoding = false; }
       return;
     }
     const message = JSON.parse(event.data);

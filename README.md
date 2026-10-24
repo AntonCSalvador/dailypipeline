@@ -20,6 +20,8 @@ Open **http://localhost:3067**. Click **Start your pipeline**, play Krillion, th
 - Escape returns keyboard focus to the surrounding page.
 - Switching games keeps both pages open. Reloading the facilitator reconnects to the same running session.
 - Results persist in `.poc/results.json`. Game login cookies are not persisted. Restarting the server loses in-progress game sessions; completed facilitator results remain.
+- Each completed score has a selectable share card and a **Copy** button in the sidebar. **Copy both scores** puts both cards into one message for your group chat. If clipboard access is blocked, select the card and copy manually.
+- New results preserve Krillion's seven tier emojis and Maptap's original share text, including round scores and emojis. Older saved results without round details still copy as totals; missing details are never invented.
 - The server binds to loopback only. This URL is not accessible from friends' devices or another phone. It is deliberately not a public remote-browser service.
 
 If Chrome is installed elsewhere, set `BROWSER_PATH` to its executable. Set `PORT` to change 3067. `POC_DATA_DIR` changes the local result directory; live checks use their own directory so they cannot overwrite normal POC results.
@@ -50,9 +52,14 @@ Raw verification output: `.poc/live-check-report.json`. Test results are isolate
 ```sh
 npm test
 node scripts/smoke.mjs
+node scripts/latency-check.mjs latest --assert-fast
 ```
 
 Unit checks use isolated synthetic fixtures, never production game data or displayed demo scores. The smoke check opens live guest games, checks streamed input and actual globe rotation, and captures desktop/mobile screenshots in `.poc/`.
+
+The latency check uses a local synthetic page through the real input and streaming path. It measures click-to-visible-frame delay after normal mouse movement and a burst of 60 queued movement events. On this computer, the original server took **1,114 ms** after the burst; the updated server took **141 ms** (with another live test running). Ordinary movement remained around **56–121 ms** across those runs, so the improvement is chiefly removal of input backlog, not elimination of streaming latency. Raw reports are in `.poc/latency-*.json`.
+
+The server now sends pointer events directly to Chrome, replaces queued mouse moves with the latest position, reduces the outgoing frame backlog, and streams every rendered frame at JPEG quality 45. The viewer retains the latest pending frame while decoding. This trades some image detail for responsiveness; bandwidth and cloud latency still need separate measurement.
 
 An optional full live check takes about four to six minutes. It lets Krillion's real timers expire and makes arbitrary Maptap guesses through the streamed UI. It completes fresh guest games, so run it intentionally:
 
@@ -60,13 +67,13 @@ An optional full live check takes about four to six minutes. It lets Krillion's 
 node scripts/live-check.mjs
 ```
 
-Its results and screenshots stay in `.poc/live-check/` and `.poc/`. It never signs into existing game accounts or manipulates game clocks, storage or scores.
+Its results and screenshots stay in `.poc/live-check/` and `.poc/`. It also checks original share text, clipboard output for all three copy buttons, manual-copy fallback, and mobile score layout. It never signs into existing game accounts or manipulates game clocks, storage or scores.
 
 ## Limits and next decision
 
 - **Local streaming is not a cloud performance test.** The displayed link time is a WebSocket round trip, not end-to-end input-to-frame latency. Actual cloud latency, GPU availability, concurrency and dollar cost still require a hosted trial.
 - Every active user needs an isolated browser session and streaming bandwidth. The UI reports bytes sent. Estimate transfer from `MB streamed / session minutes`; multiply by expected usage and the chosen host's current prices. No hosting bill has been incurred by this POC.
-- The stream currently contains video only, with a fixed JPEG quality and frame sampling. Audio, clipboard integration, screen-reader access inside the remote game, full mobile touch gestures, and cross-device accounts are not implemented. Basic pointer-based touch controls and a text-entry helper exist.
+- The stream currently contains video only, with fixed JPEG quality. Score cards copy from the facilitator; arbitrary clipboard exchange with the remote game is not implemented. Audio, screen-reader access inside the remote game, full mobile touch gestures, and cross-device accounts are not implemented. Basic pointer-based touch controls and a text-entry helper exist.
 - The server closes disconnected sessions after 15 minutes. Results remain on disk. Daily comparisons follow each game's puzzle ID/date; the visitor session uses America/New_York for this initial test.
 - The existing game's own cookies/progress in a user's normal browser do not transfer to this guest session. Use guest mode for the POC.
 - Public hosting needs authentication, per-user session ownership, resource limits, durable storage and abuse controls. Do not expose this local development server with a tunnel.

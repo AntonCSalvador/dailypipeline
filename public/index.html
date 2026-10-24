@@ -25,8 +25,12 @@
         <section class="scoreboard" aria-labelledby="scores-heading">
           <div class="section-label"><h2 id="scores-heading">Your scores</h2><span class="auto">AUTO-SAVE</span></div>
           <div class="score-row"><span>Krillion</span><strong id="krillion-score">—</strong></div>
+          <div id="krillion-share" class="share-score" hidden><textarea id="krillion-share-text" aria-label="Krillion score to copy" readonly rows="4"></textarea><button class="text-button" data-copy="krillion-share-text">Copy Krillion</button></div>
           <div class="score-row"><span>Maptap</span><strong id="maptap-score">—</strong></div>
+          <div id="maptap-share" class="share-score" hidden><textarea id="maptap-share-text" aria-label="Maptap score to copy" readonly rows="4"></textarea><button class="text-button" data-copy="maptap-share-text">Copy Maptap</button></div>
           <p id="score-note">Finish a game and your result appears here.</p>
+          <button id="copy-all" class="primary" hidden>Copy both scores</button>
+          <p id="copy-status" role="status" aria-live="polite"></p>
           <button id="next" class="primary" hidden>Next game →</button>
         </section>
         <p class="poc-note">Guest games only for this test. Each browser gets its own game session. Group leaderboards come later.</p>

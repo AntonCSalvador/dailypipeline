@@ -12,13 +12,16 @@ if (!server.listening) await new Promise(resolve => server.once('listening', res
 await mkdir('.poc', { recursive: true });
 const browser = await launchBrowser();
 const context = await browser.newContext({ ...contextOptions, viewport: { width: 1440, height: 1100 } });
+await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: 'http://localhost:3069' });
 const resumeMaptap = process.argv.includes('--resume-maptap');
-let krillionResult;
-if (resumeMaptap) {
+const resumeScores = process.argv.includes('--resume-scores');
+let krillionResult, maptapResult;
+if (resumeMaptap || resumeScores) {
   const previous = JSON.parse(await readFile('.poc/live-check/results.json', 'utf8'));
-  const priorSession = Object.entries(previous).find(([, scores]) => Object.values(scores).some(result => result.gameId === 'krillion'));
+  const priorSession = Object.entries(previous).reverse().find(([, scores]) => Object.values(scores).some(result => result.gameId === 'krillion') && (!resumeScores || Object.values(scores).filter(result => result.shareText).length === 2));
   assert(priorSession, 'A prior real Krillion result is required to resume the Maptap check');
   krillionResult = Object.values(priorSession[1]).find(result => result.gameId === 'krillion');
+  maptapResult = Object.values(priorSession[1]).find(result => result.gameId === 'maptap');
   await context.addCookies([{ name: 'dp67', value: priorSession[0], domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Strict' }]);
 }
 const viewer = await context.newPage();
@@ -35,10 +38,11 @@ async function tapGlobe(x = .35, y = .65) {
 }
 try {
   await viewer.goto('http://localhost:3069');
-  if (!resumeMaptap) await viewer.getByRole('button', { name: 'Start your pipeline' }).click();
+  if (!resumeMaptap && !resumeScores) await viewer.getByRole('button', { name: 'Start your pipeline' }).click();
   const id = (await context.cookies()).find(cookie => cookie.name === 'dp67').value;
   await viewer.waitForFunction(() => document.querySelector('#status').textContent !== 'Connecting…');
   session = sessions.get(id);
+  if (!resumeScores) {
   if (!resumeMaptap) {
   await viewer.waitForFunction(() => document.querySelector('#status').textContent === 'Krillion is live');
   const krillion = session.pages.get('krillion');
@@ -60,6 +64,7 @@ try {
   await viewer.waitForFunction(() => document.querySelector('#krillion-score').textContent !== '—', { timeout: 20000 });
   krillionResult = await krillion.evaluate(readResultInPage, 'krillion');
   assert.equal(krillionResult.score, 0);
+  assert.equal(krillionResult.shareText, `Krillion #${krillionResult.puzzleId} 🦐\n0\n\n${'⬛'.repeat(7)}`);
   await viewer.screenshot({ path: '.poc/krillion-result.png', fullPage: true });
   console.log('PASS real Krillion completion captured:', JSON.stringify(krillionResult));
   await viewer.getByRole('button', { name: 'Next game' }).click();
@@ -80,8 +85,10 @@ try {
     console.log(`Maptap round ${round}: real guess scored`);
   }
   await viewer.waitForFunction(() => document.querySelector('#maptap-score').textContent !== '—', { timeout: 30000 });
-  const maptapResult = await maptap.evaluate(readResultInPage, 'maptap');
+  maptapResult = await maptap.evaluate(readResultInPage, 'maptap');
   assert(Number.isInteger(maptapResult.score));
+  assert.equal(maptapResult.shareText, await maptap.evaluate(() => getScoreText()), 'Use the original Maptap share text');
+  }
   const saved = JSON.parse(await readFile('.poc/live-check/results.json', 'utf8'))[id];
   assert.equal(Object.keys(saved).length, 2);
   await viewer.reload();
@@ -89,8 +96,20 @@ try {
   const afterReload = JSON.parse(await readFile('.poc/live-check/results.json', 'utf8'))[id];
   assert.equal(Object.keys(afterReload).length, 2, 'Reopening must not duplicate results');
   await viewer.screenshot({ path: '.poc/both-results.png', fullPage: true });
-  const report = { checkedAt: new Date().toISOString(), krillionFromPriorVerifiedRun: resumeMaptap, krillion: krillionResult, maptap: maptapResult,
-    persistedAndDeduplicated: true, frames: session.frames, megabytes: session.bytes / 1e6,
+  const krillionText = await viewer.locator('#krillion-share-text').inputValue();
+  const maptapText = await viewer.locator('#maptap-share-text').inputValue();
+  for (const [name, text] of [['Copy Krillion', krillionText], ['Copy Maptap', maptapText], ['Copy both scores', `${krillionText}\n\n${maptapText}`]]) {
+    await viewer.getByRole('button', { name, exact: true }).click();
+    assert.equal((await viewer.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, '\n'), text.replace(/\r\n/g, '\n'), `${name} must copy exact text (allow OS line endings)`);
+  }
+  await viewer.evaluate(() => { navigator.clipboard.writeText = async () => { throw new Error('Clipboard blocked for test'); }; });
+  await viewer.getByRole('button', { name: 'Copy Krillion', exact: true }).click();
+  assert.equal(await viewer.locator('#krillion-share-text').evaluate(field => field.selectionEnd - field.selectionStart), krillionText.length);
+  await viewer.setViewportSize({ width: 390, height: 844 });
+  assert(await viewer.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  await viewer.screenshot({ path: '.poc/mobile-results.png', fullPage: true });
+  const report = { checkedAt: new Date().toISOString(), krillionFromPriorVerifiedRun: resumeMaptap || resumeScores, resumedSavedScores: resumeScores, krillion: krillionResult, maptap: maptapResult,
+    persistedAndDeduplicated: true, clipboardVerified: true, frames: session.frames, megabytes: session.bytes / 1e6,
     seconds: (Date.now() - session.createdAt) / 1000 };
   await writeFile('.poc/live-check-report.json', JSON.stringify(report, null, 2));
   console.log('PASS both real games, result capture, persistence and deduplication:', JSON.stringify(report));

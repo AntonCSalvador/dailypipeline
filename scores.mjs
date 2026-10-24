@@ -20,7 +20,13 @@ export function readResultInPage(gameId) {
     const history = JSON.parse(localStorage.getItem('krillion:stats:v1') || '{}').history || {};
     const entry = Object.entries(history).find(([, result]) => result.dayNumber === Number(match[1]));
     if (!entry || !Array.isArray(entry[1].results) || entry[1].results.length !== 7) return null;
-    return { gameId, puzzleId: match[1], puzzleDate: entry[0], score: entry[1].score, rounds: 7 };
+    const result = entry[1];
+    // Same symbols and layout as Krillion's public share card. Never include answers.
+    const emojis = { plankton: '🫧', tooclever: '🤡', schooler: '🐟', rare: '🦑', deepcut: '🏮', krillion: '🌟', miss: '⬛' };
+    const tiers = Array.isArray(result.tiers) ? result.tiers : result.results.map(round => round?.tier === null ? 'miss' : round?.tier);
+    const symbols = tiers.length === 7 && tiers.every(tier => Object.hasOwn(emojis, tier)) ? tiers.map(tier => emojis[tier]).join('') : '';
+    const shareText = `Krillion #${match[1]} 🦐\n${result.score}${symbols ? `\n\n${symbols}` : ''}`;
+    return { gameId, puzzleId: match[1], puzzleDate: entry[0], score: result.score, rounds: 7, shareText };
   }
   if (gameId === 'maptap') {
     const match = text.match(/MapTap\s*#\s*(\d+)/i);
@@ -28,7 +34,9 @@ export function readResultInPage(gameId) {
     // These are read-only values from the running game, not a network integration.
     if (typeof gameState === 'undefined' || gameState.roundData?.length !== 5) return null;
     const date = typeof getTodayKey === 'function' ? getTodayKey() : null;
-    return { gameId, puzzleId: match[1], puzzleDate: date, score: gameState.finalScore, rounds: 5 };
+    let shareText;
+    try { if (typeof getScoreText === 'function') shareText = getScoreText(); } catch { /* Keep score capture working if the site changes its share UI. */ }
+    return { gameId, puzzleId: match[1], puzzleDate: date, score: gameState.finalScore, rounds: 5, shareText };
   }
   return null;
 }
@@ -40,5 +48,6 @@ export function validateResult(result, expectedGame) {
   // Maptap has an intentional negative-score mode, including -1000.
   const minimum = game.id === 'maptap' ? -1000 : 0;
   if (!Number.isInteger(result.score) || result.score < minimum || result.score > game.maxScore) return null;
-  return { ...result, maxScore: game.maxScore };
+  const shareText = typeof result.shareText === 'string' && result.shareText.length <= 2000 ? result.shareText : undefined;
+  return { ...result, shareText, maxScore: game.maxScore };
 }
